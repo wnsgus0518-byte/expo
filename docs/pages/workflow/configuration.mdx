@@ -1,177 +1,273 @@
----
-title: Configure with app config
-description: Learn about what app.json/app.config.js/app.config.ts files are and how you can customize and use them dynamically.
----
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import { Plus, Check, X, Clock, Calendar } from 'lucide-react';
 
-import { DocsLogo } from '@expo/styleguide';
-
-import { BoxLink } from '~/ui/components/BoxLink';
-import { Collapsible } from '~/ui/components/Collapsible';
-import PossibleRedirectNotification from '~/ui/components/PossibleRedirectNotification';
-import { Terminal } from '~/ui/components/Snippet';
-
-<PossibleRedirectNotification newUrl="/versions/latest/config/app/" />
-
-The app config (**app.json**, **app.config.js**, **app.config.ts**) is used for configuring [Expo Prebuild](/workflow/prebuild) generation, how a project loads in [Expo Go](/get-started/expo-go/), and the OTA update manifest.
-
-It must be located at the root of your project, next to the **package.json**. Here is a minimal example:
-
-```json app.json
-{
-  "name": "My app",
-  "slug": "my-app"
-}
-```
-
-If your Expo config has a top-level `expo: {}` object, then this will be used in place of the root object and all other keys will be ignored.
-
-<BoxLink
-  title="App config schema reference"
-  description="Explore the full schema of the app config (app.json/app.config.js)."
-  href="/versions/latest/config/app/"
-  Icon={DocsLogo}
-/>
-
-## Properties
-
-The app config configures many things such as app name, icon, splash screen, deep linking scheme, API keys to use for some services and so on. For a complete list of available properties, see [app.json/app.config.js/app.config.ts reference](/versions/latest/config/app/).
-
-> **info** Do you use Visual Studio Code? If so, we recommend that you install the [Expo Tools](https://marketplace.visualstudio.com/items?itemName=expo.vscode-expo-tools) extension to get auto-completion of properties in **app.json** files.
-
-## Reading configuration values in your app
-
-Most configuration in the app config is accessible at runtime from your JavaScript code, using [`Constants.expoConfig`](/versions/latest/sdk/constants/#nativeconstants--properties). You **should not** include any sensitive information in the app config (with a few exceptions for fields that are filtered out, as outlined below).
-
-You can verify which configuration will be embedded in your builds/updates and available at runtime by running `npx expo config --type public`.
-
-<Collapsible summary="Which fields are filtered out of the public app config?">
-
-The following fields are filtered out of the public app config (and not accessible through the `Constants.expoConfig` object):
-
-- [`hooks`](/versions/latest/config/app/#hooks)
-- [`ios.config`](/versions/latest/config/app/#config)
-- [`android.config`](/versions/latest/config/app/#config-1)
-- [`updates.codeSigningCertificate`](/versions/latest/config/app/#codesigningcertificate)
-- [`updates.codeSigningMetadata`](/versions/latest/config/app/#codesigningmetadata)
-
-</Collapsible>
-
-> **warning** You should also avoid importing **app.json** or **app.config.js** directly in your JavaScript code, because this will import the entire file rather than a processed version of it. Instead, use [`Constants.expoConfig`](/versions/latest/sdk/constants/#nativeconstants--properties) to access the configuration.
-
-## Extending configuration
-
-Library authors can extend the app config by using [Expo Config plugins](/config-plugins/introduction/).
-
-> **info** Config plugins are mostly used to configure the [`npx expo prebuild`](/workflow/prebuild) command.
-
-## Dynamic configuration
-
-For more customization, you can use the JavaScript (**app.config.js**) or [TypeScript](#using-typescript-for-configuration-appconfigts-instead-of-appconfigjs) (**app.config.ts**). These configs have the following properties:
-
-- Comments, variables, and single quotes.
-- ESM import syntax (the `import` keyword) is not supported, except when using [TypeScript with `tsx`](/guides/typescript/#appconfigjs). JS files that are compatible with your current version of Node.js can be imported with `require()`.
-- TypeScript support with nullish coalescing and optional chaining.
-- Updated whenever Metro bundler reloads.
-- Provide environment information to your app.
-- Does not support Promises.
-
-For example, you can export an object to define your custom config:
-
-```js app.config.js
-const myValue = 'My App';
-
-module.exports = {
-  name: myValue,
-  version: process.env.MY_CUSTOM_PROJECT_VERSION || '1.0.0',
-  // All values in extra will be passed to your app.
-  extra: {
-    fact: 'kittens are cool',
-  },
-};
-```
-
-The `"extra"` key allows passing arbitrary configuration data to your app. The value of this key is accessed using [`expo-constants`](/versions/latest/sdk/constants/):
-
-```js App.js
-import Constants from 'expo-constants';
-
-Constants.expoConfig.extra.fact === 'kittens are cool';
-```
-
-You can access and modify incoming config values by exporting a function that returns an object. This is useful if your project also has an **app.json**. By default, Expo CLI will read the **app.json** first and send the normalized results to the **app.config.js**.
-
-For example, your **app.json** could look like this:
-
-```json app.json
-{
-  "name": "My App"
-}
-```
-
-And in your **app.config.js**, you are provided with that configuration in the arguments to the exported function:
-
-```js app.config.js
-module.exports = ({ config }) => {
-  console.log(config.name); // prints 'My App'
-  return {
-    ...config,
-  };
-};
-```
-
-### Switching configuration based on the environment
-
-It's common to have some different configuration in development, staging, and production environments, or to swap out configuration entirely to white label an app. To accomplish this, you can use **app.config.js** along with environment variables.
-
-```js app.config.js
-module.exports = () => {
-  if (process.env.MY_ENVIRONMENT === 'production') {
-    return {
-      /* your production config */
-    };
-  } else {
-    return {
-      /* your development config */
-    };
-  }
-};
-```
-
-To use this configuration with Expo CLI commands, set the environment variable either for specific commands or in your shell profile. To set environment variables for specific commands, prefix the command with the variables and values as shown in the example:
-
-<Terminal cmd={['$ MY_ENVIRONMENT=production eas update']} />
-
-This is not anything unique to Expo CLI. On Windows you can approximate the above command with:
-
-<Terminal cmd={['$ npx cross-env MY_ENVIRONMENT=production eas update']} />
-
-Or you can use any other mechanism that you are comfortable with for environment variables.
-
-### Using TypeScript for configuration: app.config.ts instead of app.config.js
-
-You can use autocomplete and doc-blocks with an Expo config in TypeScript. Create an **app.config.ts** with the following contents:
-
-```ts app.config.ts
-import { ExpoConfig, ConfigContext } from 'expo/config';
-
-export default ({ config }: ConfigContext): ExpoConfig => ({
-  ...config,
-  slug: 'my-app',
-  name: 'My App',
+// ✅ 알림 설정 (앱이 백그라운드일 때도 울리게)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
 });
-```
 
-To import other TypeScript files into **app.config.ts** or customize the language features, we recommend using [`tsx`](/guides/typescript/#appconfigjs). `tsx` also enables using `import` syntax in any file imported by **app.config.ts**. This means you can write local [config plugins](/config-plugins/introduction/) in TypeScript with full language features.
+export default function RoutineTracker() {
+  const [routines, setRoutines] = useState([]);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newRoutine, setNewRoutine] = useState({ name: '', time: '' });
 
-### Configuration resolution rules
+  // ✅ 앱 실행 시: 루틴 불러오기 + 알림 권한 요청
+  useEffect(() => {
+    loadRoutines();
+    registerForPushNotificationsAsync();
+  }, []);
 
-There are two different types of configs: static (**app.config.json**, **app.json**), and dynamic (**app.config.js**, **app.config.ts**). Static configs can be automatically updated with CLI tools, whereas dynamic configs must be manually updated by the developer.
+  // ✅ 저장된 루틴 불러오기
+  const loadRoutines = async () => {
+    try {
+      const data = await AsyncStorage.getItem('routines');
+      if (data) setRoutines(JSON.parse(data));
+    } catch (e) {
+      console.log('불러오기 실패:', e);
+    }
+  };
 
-1. The static config is read if **app.config.json** exists (falls back to **app.json**). If no static config exists, then default values are inferred from the **package.json** and your dependencies.
-2. The dynamic config is read if either **app.config.ts** or **app.config.js** exist. If both exist, then the TypeScript config is used.
-3. If the dynamic config returns a function, then the static config is passed to the function with `({ config }) => ({})`. This function can then mutate the static config values. Think of this like middleware for the static config.
-4. The return value from the dynamic config is used as the final config. It cannot have any promises.
-5. All functions in the config are evaluated and serialized before any tool in the Expo ecosystem uses it. The config must be a JSON manifest when it is hosted.
-6. If the final config object has a top-level `expo: {}` object, then this will be used in place of the root object and all other keys will be ignored.
+  // ✅ 루틴 저장
+  const saveRoutines = async (data) => {
+    try {
+      await AsyncStorage.setItem('routines', JSON.stringify(data));
+    } catch (e) {
+      console.log('저장 실패:', e);
+    }
+  };
 
-Running `npx expo config` will display the final configuration that will be used in Expo CLI after resolution has occurred.
+  // ✅ 알림 권한 요청
+  async function registerForPushNotificationsAsync() {
+    if (Device.isDevice) {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        Alert.alert('알림 권한이 허용되지 않았습니다 😢');
+        return;
+      }
+    } else {
+      Alert.alert('푸시 알림은 실제 기기에서만 작동합니다.');
+    }
+  }
+
+  // ✅ 매일 반복 알림 설정
+  const scheduleDailyNotification = async (routineName, time) => {
+    try {
+      const [hour, minute] = time.split(':').map(Number);
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏰ 루틴 알림',
+          body: `${routineName} 할 시간이에요!`,
+          sound: true,
+        },
+        trigger: {
+          hour,
+          minute,
+          repeats: true, // ✅ 매일 반복
+        },
+      });
+    } catch (error) {
+      console.log('알림 예약 실패:', error);
+    }
+  };
+
+  // ✅ 루틴 완료 토글
+  const toggleComplete = (id) => {
+    const updated = routines.map((routine) =>
+      routine.id === id
+        ? { ...routine, completed: !routine.completed, streak: !routine.completed ? routine.streak + 1 : routine.streak }
+        : routine
+    );
+    setRoutines(updated);
+    saveRoutines(updated);
+  };
+
+  // ✅ 루틴 삭제
+  const deleteRoutine = (id) => {
+    const filtered = routines.filter((r) => r.id !== id);
+    setRoutines(filtered);
+    saveRoutines(filtered);
+  };
+
+  // ✅ 루틴 추가
+  const addRoutine = async () => {
+    if (newRoutine.name && newRoutine.time) {
+      const newItem = {
+        id: Date.now(),
+        name: newRoutine.name,
+        time: newRoutine.time,
+        completed: false,
+        streak: 0,
+      };
+
+      // 🟣 매일 알림 예약
+      await scheduleDailyNotification(newItem.name, newItem.time);
+
+      const updated = [...routines, newItem];
+      setRoutines(updated);
+      saveRoutines(updated);
+
+      setNewRoutine({ name: '', time: '' });
+      setShowAddForm(false);
+    } else {
+      Alert.alert('이름과 시간을 모두 입력해주세요.');
+    }
+  };
+
+  const completedCount = routines.filter((r) => r.completed).length;
+  const totalCount = routines.length;
+  const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  return (
+    <ScrollView style={{ flex: 1, backgroundColor: '#f9f9ff', padding: 16 }}>
+      {/* Header */}
+      <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 20, marginBottom: 20, elevation: 2 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#333' }}>나의 루틴</Text>
+          <Calendar color="#9b5de5" size={28} />
+        </View>
+
+        {/* Progress Bar */}
+        <Text style={{ color: '#666', marginBottom: 8 }}>
+          오늘의 진행률: {completedCount}/{totalCount} ({completionRate}%)
+        </Text>
+        <View style={{ height: 8, backgroundColor: '#e5e5e5', borderRadius: 8 }}>
+          <View
+            style={{
+              height: 8,
+              borderRadius: 8,
+              width: `${completionRate}%`,
+              backgroundColor: '#9b5de5',
+            }}
+          />
+        </View>
+      </View>
+
+      {/* 루틴 리스트 */}
+      {routines.map((routine) => (
+        <View
+          key={routine.id}
+          style={{
+            backgroundColor: 'white',
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 10,
+            borderWidth: routine.completed ? 2 : 0,
+            borderColor: routine.completed ? '#4ade80' : '#fff',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <TouchableOpacity
+              onPress={() => toggleComplete(routine.id)}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: routine.completed ? '#4ade80' : '#e5e5e5',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Check color={routine.completed ? 'white' : '#666'} size={20} />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: '600',
+                  textDecorationLine: routine.completed ? 'line-through' : 'none',
+                  color: routine.completed ? '#999' : '#333',
+                }}
+              >
+                {routine.name}
+              </Text>
+              <Text style={{ color: '#888', marginTop: 4 }}>
+                <Clock size={14} /> {routine.time} | 🔥 {routine.streak}일
+              </Text>
+            </View>
+
+            <TouchableOpacity onPress={() => deleteRoutine(routine.id)}>
+              <X color="#f87171" size={22} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+
+      {/* 루틴 추가 폼 */}
+      {!showAddForm ? (
+        <TouchableOpacity
+          onPress={() => setShowAddForm(true)}
+          style={{
+            backgroundColor: '#9b5de5',
+            padding: 16,
+            borderRadius: 12,
+            alignItems: 'center',
+            marginTop: 10,
+          }}
+        >
+          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>+ 새 루틴 추가</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, marginTop: 10 }}>
+          <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 10 }}>새 루틴 추가</Text>
+
+          <TextInput
+            placeholder="루틴 이름 (예: 아침 운동)"
+            value={newRoutine.name}
+            onChangeText={(text) => setNewRoutine({ ...newRoutine, name: text })}
+            style={{
+              borderWidth: 1,
+              borderColor: '#ddd',
+              borderRadius: 8,
+              padding: 10,
+              marginBottom: 10,
+            }}
+          />
+
+          <TextInput
+            placeholder="시간 (예: 07:00)"
+            value={newRoutine.time}
+            onChangeText={(text) => setNewRoutine({ ...newRoutine, time: text })}
+            style={{
+              borderWidth: 1,
+              borderColor: '#ddd',
+              borderRadius: 8,
+              padding: 10,
+              marginBottom: 10,
+            }}
+          />
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <TouchableOpacity
+              onPress={addRoutine}
+              style={{ flex: 1, backgroundColor: '#9b5de5', padding: 12, borderRadius: 8, alignItems: 'center', marginRight: 5 }}
+            >
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>추가</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setShowAddForm(false)}
+              style={{ flex: 1, backgroundColor: '#ddd', padding: 12, borderRadius: 8, alignItems: 'center', marginLeft: 5 }}
+            >
+              <Text style={{ color: '#333', fontWeight: 'bold' }}>취소</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
